@@ -1,13 +1,18 @@
 #此项目源文件后缀类型
 PROJECTTYPE = .c
 
-#您想要生成可执行文件的名字
-BinName :=obj.out 
-
+#您想要生成可执行文件的名字 如果外部没有赋值,那么使用obj.out
+target ?= obj.out
 
 #获取当前makefile绝对路径
-pes_parent_dir:=$(shell pwd)/$(lastword $(MAKEFILE_LIST))
-pes_parent_dir:=$(shell dirname $(pes_parent_dir))
+pes_parent_dir:=$(dir $(abspath $(lastword $(MAKEFILE_LIST))))////
+
+#删除路径下最后一个 / 
+pes_parent_dir:=$(subst /////,,$(pes_parent_dir))
+
+#获得mkfile 的实际路径  测试使用,  没有实际用到 可删除
+mkPath:=$(dir $(abspath $(lastword $(MAKEFILE_LIST))))////
+mkPath:=$(subst /////,,$(mkPath))
 
 #获取目录下所有子目录
 AllDirs := $(shell cd $(pes_parent_dir); ls -R | grep '^\./.*:$$' | awk '{gsub(":","");print}') .
@@ -18,11 +23,14 @@ AllDirs := $(foreach n,$(AllDirs),$(subst .,$(pes_parent_dir),$(n)))
 #获取所有 .c/.cpp文件路径
 Sources := $(foreach n,$(AllDirs) , $(wildcard $(n)/*$(PROJECTTYPE)))
 
+#设置*.o 和 *.d 文件的存放路径
+buildPath :=$(foreach n,$(Sources),$(subst $(pes_parent_dir),$(pes_parent_dir)/build,$(n)))
+
 #处理得到*.o 后缀文件名
-OBJS = $(patsubst %$(PROJECTTYPE),%.o, $(Sources))  
+OBJS := $(patsubst %$(PROJECTTYPE),%.o, $(buildPath))  
 
 #同理得到 *.d文件名
-Deps := $(patsubst %$(PROJECTTYPE),%.d, $(Sources))  
+Deps := $(patsubst %$(PROJECTTYPE),%.d, $(buildPath))  
 
 #需要用到的第三方静态库
 StaticLib :=
@@ -31,7 +39,7 @@ StaticLib :=
 DynamicLib := 
 
 #真实二进制文件输出路径
-Bin :=$(pes_parent_dir)/$(BinName)
+Bin :=$(pes_parent_dir)/$(target)
 
 #C语言编译器
 CC = gcc
@@ -40,7 +48,7 @@ CC = gcc
 CXX = g++
 
 #简化rm -f
-RM = -rm -f
+RM = rm -f
 
 #C语言配置参数
 CFLAGS = -g  -pedantic -std=c99 -Wall -o
@@ -63,33 +71,40 @@ des:
 	@echo AllDirs = $(AllDirs)
 	@echo Sources = $(Sources)
 	@echo Deps = $(Deps)
+	@echo makefilePath =$(mkPath)
+	@echo bulidPath=$(buildPath)
 
 #对应关系 在本makefile中以空格隔开的后缀为.c 都会为其生成一个新的.d文件
-%.d : %.c  
+$(pes_parent_dir)/build/%.d :$(pes_parent_dir)/%.c  
 	   @echo 'finding $< depending head file'
+	   @if [ ! -d $(dir $@) ]; then mkdir -p $(dir $@); fi;
 	   @$(CC) -MT"$(<:.c=.o) $@" -MM $(INCLUDE_PATH) $(CPPFLAGS) $< > $@
 
 #对于include中的*.d文件，只要里面任意有一个文件被修改，那么就会触发此规则生成一个新的*.o文件
 %.o: %.d
-	@echo compile $(<:d=c)
-	@$(CC) -c $(<:.d=.c) $(INCLUDE_PATH) $(CFLAGS) $@ 
+	@echo compile $(patsubst %.d,%.c,$(subst build/,,$<)) 
+	@$(CC) -c $(patsubst %.d,%.c,$(subst build/,,$<)) $(INCLUDE_PATH) $(CFLAGS) $@ 
 
-sinclude $(Sources:.c=.d)
-
+sinclude $(buildPath:.c=.d)
+#sinclude $(buildPath:.c=.o)
 $(Bin) : $(OBJS)  
 	@echo bulding....
 	@$(CC) $(OBJS)  $(CFLAGS) $(Bin)
-	@echo created file: $(BinName)	
+	@echo created file: $(target)	
 
 .PHONY : clean  
 clean:   
-	    @echo '清理所有文件'
-	    @$(RM) $(OBJS) $(Deps) $(Bin)
+	    @echo '清理所有文件ing...'
+	    @$(RM) -r $(pes_parent_dir)/build
+	    @echo '清理可执行文件ing...'
+	    @$(RM) $(Bin)
+	    @echo 'done'
 
 .PHONY : cleanO
 cleanO:
 	    @echo '清理Obj && Dep'
-	    @$(RM) $(OBJS) $(Deps)
+	    @$(RM) -r $(pes_parent_dir)/build
+	    @echo 'done'
 #main.out: $(OBJ)
 #	cc -o main.out $(OBJ)
 
